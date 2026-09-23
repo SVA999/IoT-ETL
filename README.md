@@ -47,9 +47,9 @@ python -m unittest discover -s tests -v
 ```
 
 > **El GPS necesita contexto seguro.** Los navegadores solo entregan
-> `navigator.geolocation` sobre `https://` o `localhost`. En una EC2 con IP pública
-> y HTTP plano el botón no va a funcionar: hay que poner el proxy con TLS
-> (`deploy/Caddyfile`). Mientras tanto, la app ofrece entrada manual de coordenadas.
+> `navigator.geolocation` sobre `https://` o `localhost`. En una EC2 con IP pública y HTTP
+> plano el botón no funciona: hay que servir por HTTPS (ver [8.4](#84-https-con-sslipio--el-paso-que-hace-funcionar-el-gps)).
+> Mientras tanto, la app ofrece entrada manual de coordenadas.
 
 ---
 
@@ -216,31 +216,149 @@ El esquema está listo para migrar a PostGIS si el proyecto crece.
 
 ---
 
-## 8. Despliegue en EC2
+## 8. Despliegue en EC2 (paso a paso)
 
-Sube el proyecto a la instancia (scp, git clone, lo que prefieras) y desde su carpeta:
+Probado de punta a punta en una `t2.micro` con Ubuntu. El resultado final es la app
+servida por HTTPS en `https://<ip>.sslip.io`, con el GPS funcionando en el celular y la
+PWA instalable.
+
+### 8.1 La instancia
+
+- Ubuntu, `t2.micro` o `t3.micro` (1 GB de RAM alcanza).
+- **Security group** → Inbound rules:
+
+  | Puerto | Origen | Para qué |
+  |---|---|---|
+  | 22 | tu IP | SSH |
+  | 80 | 0.0.0.0/0 | validación de Let's Encrypt y redirección a HTTPS |
+  | 443 | 0.0.0.0/0 | la app |
+
+  El **8000 no se abre**: gunicorn queda interno, detrás del proxy.
+
+- Conviene una **IP elástica**. Si la IP cambia, cambia el nombre `sslip.io` y hay que
+  reemitir el certificado.
+
+### 8.2 Subir el proyecto
+
+```bash
+git clone <tu-repo> ~/IoT-ETL          # o: scp -i clave.pem -r siata-dos ubuntu@<ip>:~/IoT-ETL
+cd ~/IoT-ETL
+```
+
+### 8.3 Instalar
 
 ```bash
 sudo bash deploy/ec2_setup.sh
 ```
 
-El script se instala desde donde esta parado (no desde una ruta fija), detecta el usuario
-que invoco sudo, elige un Python que tenga wheels de numpy/scipy, crea el venv, corre el
-ETL inicial, registra el servicio systemd (gunicorn, 2 workers) y deja un cron que refresca
-el dato en vivo cada 30 min.
+El script se instala **desde la carpeta donde está parado** (no desde una ruta fija),
+detecta el usuario que invocó `sudo`, elige un intérprete que tenga wheels de numpy/scipy,
+crea el venv en `/opt/neon-air/.venv`, corre el ETL inicial, registra el servicio systemd
+y deja un cron que refresca el dato en vivo cada 30 min.
 
-Comprobacion: `curl -s localhost:8000/api/health`
-
-Después, **HTTPS obligatorio** para que funcionen el GPS y la instalación de la PWA:
+Comprobación antes de seguir:
 
 ```bash
-sudo apt install -y caddy
-sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+curl -s localhost:8000/api/health
+```
+
+Si eso devuelve el JSON, el backend está listo. Si no:
+`sudo journalctl -u neon-air -n 40 --no-pager`.
+
+### 8.4 HTTPS con sslip.io — el paso que hace funcionar el GPS
+
+El navegador sólo entrega `navigator.geolocation` en **contexto seguro**: `https://` o
+`localhost`. Y no existe autoridad que emita certificados para una IP pelada, así que
+hace falta un nombre.
+
+`sslip.io` es un DNS público que resuelve cualquier IP embebida en el nombre:
+`3.84.130.65.sslip.io` → `3.84.130.65`. Como es un nombre real, Let's Encrypt **sí** emite
+certificado para él, y Caddy lo saca y lo renueva solo.
+
+Instalar Caddy desde su repositorio oficial (en Ubuntu reciente no está en los repos por
+defecto, `apt install caddy` a secas falla):
+
+```bash
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update && sudo apt install -y caddy
+```
+
+Configurar el proxy (reemplaza la IP por la tuya):
+
+```bash
+printf '3.84.130.65.sslip.io {\n  encode gzip\n  reverse_proxy localhost:8000\n}\n' | sudo tee /etc/caddy/Caddyfile
 sudo systemctl restart caddy
 ```
 
-Security group: 22 (solo tu IP), 80 y 443. El 8000 queda interno.
-Sin dominio, para probar: `ssh -L 5000:localhost:8000 ...` y abrir `http://localhost:5000`.
+Verificar que el certificado salió:
+
+```bash
+curl -sI https://3.84.130.65.sslip.io | head -1
+sudo journalctl -u caddy -n 20 --no-pager
+```
+
+Listo: abres `https://3.84.130.65.sslip.io` en el celular, el botón de GPS responde y
+desde el menú de Chrome puedes usar *Añadir a pantalla de inicio* para instalarla como
+PWA.
+
+`deploy/Caddyfile` trae la versión completa (cabeceras de seguridad y `no-cache` para el
+service worker) por si quieres usar un dominio propio en vez de `sslip.io`.
+
+### 8.5 Alternativa sin Caddy: certificado autofirmado
+
+```bash
+sudo bash deploy/self_signed_cert.sh 3.84.130.65
+```
+
+Genera el par con `subjectAltName=IP:...` —sin esa extensión los navegadores lo rechazan,
+porque hace años ignoran el CN— lo deja legible por el usuario del servicio y activa TLS
+directamente en gunicorn (`--certfile`/`--keyfile`), sin proxy.
+
+Sirve para el GPS **después de aceptar la advertencia** del navegador, pero Chrome bloquea
+el registro del service worker en orígenes con certificado inválido: se pierde la
+instalación como PWA y el modo sin conexión. Por eso `sslip.io` es la opción preferida.
+
+### 8.6 Operación
+
+```bash
+sudo systemctl status neon-air          # estado
+sudo journalctl -u neon-air -f          # logs en vivo
+sudo systemctl restart neon-air         # reiniciar
+```
+
+Para actualizar después de cambiar código:
+
+```bash
+cd ~/IoT-ETL && git pull
+sudo bash deploy/ec2_setup.sh && sudo systemctl restart neon-air
+```
+
+En el navegador entra con **Ctrl+Shift+R**: el service worker cachea el frontend y si no
+forzas la recarga puedes quedarte viendo la versión anterior.
+
+El servicio corre con **un solo worker de gunicorn y 8 hilos**, a propósito: cada worker
+es un proceso independiente que correría su propio ETL y cargaría su propia copia del
+histórico en pandas, y en 1 GB de RAM eso termina con el OOM killer matando un worker a
+mitad de una respuesta.
+
+> `POST /api/etl/run` queda accesible desde internet: cualquiera que encuentre la URL puede
+> disparar el pipeline completo. Para una app de práctica es aceptable; si te preocupa,
+> restringe el origen en el security group mientras pruebas.
+
+### 8.7 Problemas que ya aparecieron (y su causa real)
+
+| Síntoma | Causa | Solución |
+|---|---|---|
+| `rsync: change_dir "/tmp/neon-air" failed` | El script tenía una ruta de origen fija | Usa la versión actual: se instala desde su propia carpeta, o pásale la ruta como argumento |
+| `sudo: command not found` justo después de un `apt` | Bash cacheó la ruta vieja del binario | `hash -r`, o abre una sesión SSH nueva |
+| `pip` compilando numpy/scipy durante minutos y fallando | La AMI trae un Python más nuevo que los wheels publicados (p. ej. 3.14) | `requirements.txt` usa rangos y el script prefiere `python3.12`/`3.11` si existen |
+| `http://<ip>:5000` no carga | El 5000 es sólo del modo desarrollo (`python app.py`) | El servicio usa el 8000, y de cara a internet el 443 |
+| `https://<ip>:8000` no carga | Ese puerto habla HTTP plano, no TLS | Entra por `https://<ip>.sslip.io` |
+| `Cannot read properties of null` en la consola de la app | Respuesta 200 con cuerpo ilegible: JSON con `NaN` o truncado por el OOM killer | Serializador que convierte no-finitos a `null` + un solo worker. El helper del frontend ahora reporta el error real |
+| El botón de GPS no responde | Contexto no seguro (HTTP plano) | HTTPS (8.4). Mientras tanto, la app ofrece coordenadas manuales |
+| Los cambios no se ven en el navegador | Service worker sirviendo la copia cacheada | Ctrl+Shift+R |
 
 ---
 
@@ -263,11 +381,16 @@ static/                 PWA: CSS, JS, service worker, manifest, iconos
 templates/index.html    Interfaz
 scripts/run_etl.py      CLI del pipeline (cron-able)
 tests/test_etl.py       22 pruebas sobre una serie sintética con defectos inyectados
-deploy/                 systemd, Caddy y script de instalación en EC2
+deploy/
+  ec2_setup.sh          Instalación completa en la instancia
+  neon-air.service      Unidad systemd (gunicorn, 1 worker, TLS opcional)
+  Caddyfile             Proxy HTTPS para dominio propio
+  self_signed_cert.sh   Certificado autofirmado sobre la IP (alternativa a Caddy)
 ```
 
-Ajustes por variables de entorno: `PORT`, `SIATA_DB_PATH`, `SIATA_FALLBACK_FILE`,
-`SIATA_MAX_GAP_HOURS`, `SIATA_LIVE_TTL`, `SIATA_HTTP_TIMEOUT`.
+Ajustes por variables de entorno: `SIATA_DB_PATH`, `SIATA_FALLBACK_FILE`,
+`SIATA_MAX_GAP_HOURS`, `SIATA_LIVE_TTL`, `SIATA_HTTP_TIMEOUT` y `PORT` (sólo en modo
+desarrollo; en la EC2 el puerto se define con `BIND` en la unidad de systemd).
 
 ---
 

@@ -9,6 +9,9 @@ User=ubuntu
 WorkingDirectory=/opt/neon-air
 Environment="BIND=0.0.0.0:8000"
 Environment="PYTHONUNBUFFERED=1"
+# TLS directo en gunicorn, sin proxy. Lo llena deploy/self_signed_cert.sh con
+# --certfile y --keyfile; vacio significa HTTP plano.
+Environment="TLS_ARGS="
 # Para servir directo en la IP publica sin puerto (http://<ip>/), cambia el BIND
 # de arriba a 0.0.0.0:80 y descomenta la linea siguiente: sin esa capacidad un
 # proceso que no es root no puede tomar un puerto por debajo de 1024.
@@ -24,6 +27,7 @@ ExecStart=/opt/neon-air/.venv/bin/gunicorn \
     --threads 8 \
     --timeout 180 \
     --bind $BIND \
+    $TLS_ARGS \
     --access-logfile - \
     --error-logfile - \
     app:app
