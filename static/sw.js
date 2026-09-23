@@ -9,7 +9,7 @@
  *     dato fresco de SIATA, pero si el telefono esta sin senal se muestra la
  *     ultima lectura conocida en vez de una pantalla en blanco.
  */
-const VERSION = 'neon-air-v2';
+const VERSION = 'neon-air-v3';
 const SHELL = `${VERSION}-shell`;
 const RUNTIME = `${VERSION}-api`;
 

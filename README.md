@@ -235,7 +235,7 @@ Después, **HTTPS obligatorio** para que funcionen el GPS y la instalación de l
 
 ```bash
 sudo apt install -y caddy
-sudo cp deploy/Caddyfile /etc/caddy/Caddyfile   # cambia el dominio
+sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
 sudo systemctl restart caddy
 ```
 

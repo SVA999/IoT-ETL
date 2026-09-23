@@ -7,15 +7,23 @@ Wants=network-online.target
 Type=simple
 User=ubuntu
 WorkingDirectory=/opt/neon-air
-Environment="PORT=8000"
+Environment="BIND=0.0.0.0:8000"
 Environment="PYTHONUNBUFFERED=1"
-# El primer worker calienta el ETL al arrancar; 2 workers bastan para una t2.micro
-# y el timeout largo cubre la corrida del historico completo.
+# Para servir directo en la IP publica sin puerto (http://<ip>/), cambia el BIND
+# de arriba a 0.0.0.0:80 y descomenta la linea siguiente: sin esa capacidad un
+# proceso que no es root no puede tomar un puerto por debajo de 1024.
+#AmbientCapabilities=CAP_NET_BIND_SERVICE
+# UN SOLO worker con varios hilos, a proposito. Cada worker es un proceso
+# independiente: con dos, cada uno corre su propio ETL y carga su propia copia
+# del historico en pandas (cientos de MB), lo que en una t2.micro de 1 GB
+# termina con el OOM killer matando un worker a mitad de una respuesta. Con un
+# worker, el estado del pipeline se comparte y los hilos cubren la concurrencia,
+# que para esta app es de lectura y poca.
 ExecStart=/opt/neon-air/.venv/bin/gunicorn \
-    --workers 2 \
-    --threads 4 \
+    --workers 1 \
+    --threads 8 \
     --timeout 180 \
-    --bind 0.0.0.0:8000 \
+    --bind $BIND \
     --access-logfile - \
     --error-logfile - \
     app:app

@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import logging
 
+import math
+
 from flask import Flask, jsonify, render_template, send_from_directory
+from flask.json.provider import DefaultJSONProvider
 
 import config
 from api import api
@@ -21,9 +24,34 @@ logging.basicConfig(
 log = logging.getLogger("neon-air")
 
 
+def _sanitize(value):
+    """Convierte a None todo float no finito, en cualquier nivel de la estructura.
+
+    Python serializa NaN e Infinity como los literales `NaN` e `Infinity`, que
+    son JSON invalido: el navegador revienta al parsear y la respuesta llega
+    como nula, sin error visible. Trabajando con series de sensores un NaN se
+    cuela con facilidad, asi que se filtra en la frontera de salida y no se
+    confia en que cada endpoint recuerde limpiarlo.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _sanitize(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_sanitize(v) for v in value]
+    return value
+
+
+class SafeJSONProvider(DefaultJSONProvider):
+    sort_keys = False  # el orden de las claves cuenta para leer la API
+
+    def dumps(self, obj, **kwargs):
+        return super().dumps(_sanitize(obj), **kwargs)
+
+
 def create_app() -> Flask:
     app = Flask(__name__, static_folder="static", template_folder="templates")
-    app.json.sort_keys = False  # el orden de las claves cuenta para leer la API
+    app.json = SafeJSONProvider(app)
     app.register_blueprint(api)
 
     @app.get("/")

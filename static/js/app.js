@@ -18,10 +18,28 @@ const state = {
 /* ------------------------------------------------------------------ helpers */
 async function api(path, options) {
     const response = await fetch(path, options);
+    const raw = await response.text();
+
     let body = null;
-    try { body = await response.json(); } catch { /* respuesta no JSON */ }
+    let parseError = null;
+    try {
+        body = raw ? JSON.parse(raw) : null;
+    } catch (error) {
+        parseError = error;
+    }
+
     if (!response.ok) {
-        throw new Error((body && body.error) || `HTTP ${response.status}`);
+        throw new Error((body && body.error) || `HTTP ${response.status} en ${path}`);
+    }
+    // Un 200 con cuerpo ilegible es casi siempre una respuesta truncada (worker
+    // caido a medio envio) o JSON invalido. Antes esto devolvia null en silencio
+    // y el error estallaba mucho despues, en una linea que no tenia la culpa.
+    if (parseError || body === null) {
+        const preview = raw.slice(0, 120).replace(/\s+/g, ' ');
+        throw new Error(
+            `${path} respondio ${response.status} con un cuerpo ilegible `
+            + `(${raw.length} bytes)${preview ? `: ${preview}` : ' vacio'}`,
+        );
     }
     return body;
 }
