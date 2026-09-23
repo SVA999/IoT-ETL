@@ -218,14 +218,18 @@ El esquema está listo para migrar a PostGIS si el proyecto crece.
 
 ## 8. Despliegue en EC2
 
+Sube el proyecto a la instancia (scp, git clone, lo que prefieras) y desde su carpeta:
+
 ```bash
-scp -i clave.pem -r siata-dos ubuntu@<ip>:/tmp/neon-air
-ssh -i clave.pem ubuntu@<ip>
-sudo bash /tmp/neon-air/deploy/ec2_setup.sh
+sudo bash deploy/ec2_setup.sh
 ```
 
-El script instala dependencias, crea el venv, corre el ETL inicial, registra el servicio
-systemd (gunicorn, 2 workers) y deja un cron que refresca el dato en vivo cada 30 min.
+El script se instala desde donde esta parado (no desde una ruta fija), detecta el usuario
+que invoco sudo, elige un Python que tenga wheels de numpy/scipy, crea el venv, corre el
+ETL inicial, registra el servicio systemd (gunicorn, 2 workers) y deja un cron que refresca
+el dato en vivo cada 30 min.
+
+Comprobacion: `curl -s localhost:8000/api/health`
 
 Después, **HTTPS obligatorio** para que funcionen el GPS y la instalación de la PWA:
 

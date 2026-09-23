@@ -1,7 +1,11 @@
-Flask==3.0.3
-gunicorn==22.0.0
-pandas==2.2.2
-numpy==1.26.4
-scipy==1.13.1
-requests==2.32.3
-python-dateutil==2.9.0.post0
+# Rangos, no versiones exactas: la AMI de la EC2 puede traer un Python mas nuevo
+# que los wheels de una version fija, y pip terminaria compilando numpy/scipy
+# desde fuente en una t2.micro. Con rangos, pip escoge el wheel que si existe
+# para el interprete que haya en la maquina.
+Flask>=3.0,<4
+gunicorn>=21.2
+pandas>=2.2
+numpy>=1.26
+scipy>=1.11
+requests>=2.31
+python-dateutil>=2.9
