@@ -1,0 +1,13 @@
+Old
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.env
+data/*.db
+data/*.sqlite3
+data/cache/
+*.log
+.DS_Store
+.claude

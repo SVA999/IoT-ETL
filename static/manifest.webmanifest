@@ -1,0 +1,19 @@
+{
+  "name": "NEON AIR · Calidad del aire SIATA",
+  "short_name": "NEON AIR",
+  "description": "Semaforo de calidad del aire del Valle de Aburra con datos publicos de SIATA, limpieza ETL e imputacion por ensamble.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#07060a",
+  "theme_color": "#07060a",
+  "lang": "es-CO",
+  "categories": ["health", "utilities", "education"],
+  "icons": [
+    { "src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

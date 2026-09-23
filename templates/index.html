@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Calidad del aire del Valle de Aburra con datos publicos de SIATA, limpieza ETL e imputacion por ensamble.">
+<meta name="theme-color" content="#07060a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NEON AIR">
+<title>NEON AIR :: SIATA UPLINK</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icons/favicon.png">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap">
+<link rel="stylesheet" href="/static/css/cyber.css">
+</head>
+<body>
+<div class="shell">
+
+    <header class="topbar">
+        <div class="brand">
+            <img src="/static/icons/icon-192.png" alt="" width="40" height="40">
+            <div>
+                <h1><span class="glitch" data-text="NEON_AIR">NEON_AIR</span></h1>
+                <p>SIATA uplink &middot; valle de aburra &middot; pm2.5</p>
+            </div>
+        </div>
+        <div class="controls">
+            <span class="chip offline" id="chipSource"><span class="dot"></span><span id="chipText">conectando</span></span>
+            <span class="chip" id="chipNet" style="color:var(--muted)"><span id="netText">red</span></span>
+        </div>
+    </header>
+
+    <!-- ============================ ESCANEO GPS ============================ -->
+    <section class="panel">
+        <header>
+            <h2>Escaner de zona</h2>
+            <span class="tiny" id="scanClock">--:--:--</span>
+        </header>
+
+        <div class="scan">
+            <button class="btn-scan" id="btnScan" type="button">
+                <span id="btnScanText">&#9678; ESCANEAR MI ZONA</span>
+            </button>
+
+            <div class="verdict sindato" id="verdict">
+                <div class="headline">
+                    <div class="value" id="vValue">--</div>
+                    <div>
+                        <div class="unit">PM2.5 &micro;g/m&sup3; &middot; ICA <b id="vIca">--</b></div>
+                        <div class="label" id="vLabel">SIN LECTURA</div>
+                    </div>
+                </div>
+                <div class="gauge"><i id="vGauge" style="width:0%"></i></div>
+                <p class="advice" id="vAdvice">Presiona el boton para leer tu posicion GPS y estimar la calidad del aire donde estas.</p>
+                <div class="meta" id="vMeta"></div>
+            </div>
+
+            <!-- El GPS del navegador solo funciona en contexto seguro (https o
+                 localhost). Si falla o se niega el permiso, la app sigue siendo
+                 usable con coordenadas manuales. -->
+            <div class="manual hidden" id="manualBox">
+                <span class="tiny">Sin GPS: usa coordenadas manuales</span>
+                <div class="controls">
+                    <input type="number" id="manualLat" step="0.00001" placeholder="latitud" value="6.24420" inputmode="decimal">
+                    <input type="number" id="manualLon" step="0.00001" placeholder="longitud" value="-75.58120" inputmode="decimal">
+                    <button class="btn ghost" id="btnManual" type="button">consultar punto</button>
+                </div>
+            </div>
+
+            <div class="scale" id="scaleBox"></div>
+            <p class="note">
+                Escala ICA de PM2.5 segun la <b>Resolucion 2254 de 2017</b> (Colombia), calculada sobre el
+                promedio movil de 24 h, que es la base legal del indice. El valor en tu punto exacto se
+                estima con <b>IDW</b> sobre las estaciones vecinas, no solo con la mas cercana.
+            </p>
+        </div>
+    </section>
+
+    <!-- ============================ ESTADO + ESTACIONES ============================ -->
+    <div class="grid side">
+        <section class="panel">
+            <header>
+                <h2>Serie horaria e imputacion</h2>
+                <span class="tiny" id="chartStation">selecciona una estacion</span>
+            </header>
+            <div class="chart-box"><canvas id="chart" width="900" height="380"></canvas></div>
+            <div class="legend">
+                <span style="color:var(--cyan)"><i></i>observado</span>
+                <span style="color:var(--yellow)"><i></i>ensamble</span>
+                <span style="color:var(--magenta)"><i></i>lineal</span>
+                <span style="color:var(--green)"><i></i>cubico</span>
+                <span style="color:var(--orange)"><i></i>nearest</span>
+                <span class="imp" style="color:var(--yellow)"><i></i>dato imputado</span>
+                <span style="color:var(--red)"><i></i>hueco irrecuperable</span>
+            </div>
+            <p class="note" id="chartNote">
+                La linea cian es lo que realmente midio la estacion tras la limpieza. Donde se corta,
+                el ETL reconstruyo el dato combinando las tres interpolaciones.
+            </p>
+        </section>
+
+        <section class="panel">
+            <header>
+                <h2>Red de estaciones</h2>
+                <span class="tiny" id="stationCount">--</span>
+            </header>
+            <div class="stations" id="stations"></div>
+        </section>
+    </div>
+
+    <!-- ============================ CALIDAD DE DATOS ============================ -->
+    <section class="panel">
+        <header>
+            <h2>Calidad del dato (no del aire)</h2>
+            <span class="tiny" id="qualityIndicator">--</span>
+        </header>
+        <div class="tiles" id="qualityTiles"></div>
+        <p class="note">
+            Indicador de disponibilidad con los cortes que usa SIATA: <b>OK &gt; 90 %</b>,
+            <b>advertencia 75-90 %</b>, <b>error &lt; 75 %</b>. Los huecos de mas de
+            <b id="maxGap">6</b> h no se imputan: se declaran irrecuperables, porque inventarlos
+            seria peor que reconocer que no hay dato.
+        </p>
+        <div class="table-wrap" style="margin-top:14px">
+            <table id="qualityTable">
+                <thead><tr>
+                    <th>Estacion</th><th>Disp. cruda</th><th>Disp. final</th><th>Nulos</th>
+                    <th>Centinelas</th><th>Fuera de rango</th><th>Outliers</th><th>Huecos</th>
+                    <th>Imputados</th><th>Sin recuperar</th><th>Indicador</th>
+                </tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ============================ BENCHMARK ============================ -->
+    <section class="panel">
+        <header>
+            <h2>Linear vs Cubic vs Nearest vs Ensamble</h2>
+            <button class="btn ghost" id="btnBench" type="button">ejecutar experimento</button>
+        </header>
+        <p class="note" id="benchMethod">
+            Se ocultan artificialmente 5 %, 10 %, 20 % y 30 % de los datos realmente observados, en
+            bloques de 1 a 6 h, se reconstruyen con cada metodo y se comparan contra el valor real.
+            El ensamble se calibra solo con los datos visibles, nunca con los ocultos.
+        </p>
+        <div class="table-wrap">
+            <table id="benchTable">
+                <thead><tr>
+                    <th>Metodo</th><th>MAE</th><th>RMSE</th><th>MAPE %</th><th>R&sup2;</th>
+                    <th>Imposibles %</th><th>Tiempo ms</th><th>n</th>
+                </tr></thead>
+                <tbody><tr><td colspan="8">Sin ejecutar.</td></tr></tbody>
+            </table>
+        </div>
+        <div class="table-wrap hidden" id="benchDetailWrap" style="margin-top:14px">
+            <table id="benchDetail">
+                <thead><tr>
+                    <th>% faltante</th><th>Metodo</th><th>MAE</th><th>RMSE</th><th>MAPE %</th><th>R&sup2;</th><th>Estacion</th>
+                </tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ============================ CONSOLA ETL ============================ -->
+    <section class="panel">
+        <header>
+            <h2>Consola ETL</h2>
+            <span class="tiny" id="dbStats">--</span>
+        </header>
+        <div class="controls" style="margin-bottom:12px">
+            <select id="etlSource" aria-label="Fuente de datos">
+                <option value="auto">auto (vivo, si falla archivo)</option>
+                <option value="live">solo SIATA en vivo</option>
+                <option value="file">solo archivo historico</option>
+            </select>
+            <button class="btn" id="btnEtl" type="button">correr pipeline</button>
+            <button class="btn ghost" id="btnHealth" type="button">estado</button>
+        </div>
+        <div class="console mono" id="console"></div>
+    </section>
+
+    <footer class="foot">
+        <span>{{ app_name }} v{{ version }} &middot; practica ETL IoT &middot; UPB</span>
+        <span>fuente: siata.gov.co &middot; datos publicos</span>
+    </footer>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>

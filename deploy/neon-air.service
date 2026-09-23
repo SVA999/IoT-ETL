@@ -1,0 +1,26 @@
+[Unit]
+Description=NEON AIR - PWA de calidad del aire SIATA (Flask + gunicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/neon-air
+Environment="PORT=8000"
+Environment="PYTHONUNBUFFERED=1"
+# El primer worker calienta el ETL al arrancar; 2 workers bastan para una t2.micro
+# y el timeout largo cubre la corrida del historico completo.
+ExecStart=/opt/neon-air/.venv/bin/gunicorn \
+    --workers 2 \
+    --threads 4 \
+    --timeout 180 \
+    --bind 0.0.0.0:8000 \
+    --access-logfile - \
+    --error-logfile - \
+    app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+# HTTPS automatico para NEON AIR.
+#
+# Por que importa: el navegador SOLO entrega navigator.geolocation en contexto
+# seguro. Con http://<ip-publica>:8000 el boton de GPS nunca va a funcionar en
+# el celular, y la PWA tampoco se instala. Caddy saca y renueva el certificado
+# de Let's Encrypt solo, sin configurar nada mas.
+#
+# Uso en la EC2 (Ubuntu):
+#   sudo apt install -y caddy
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile   # cambia el dominio primero
+#   sudo systemctl restart caddy
+#
+# Requiere un dominio apuntando a la IP elastica de la instancia y los puertos
+# 80 y 443 abiertos en el security group.
+
+aire.tudominio.co {
+    encode gzip zstd
+    reverse_proxy localhost:8000
+
+    # El service worker y el manifest no deben quedarse pegados en cache.
+    @nocache path /sw.js /manifest.webmanifest
+    header @nocache Cache-Control "no-cache"
+
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+        Permissions-Policy "geolocation=(self)"
+    }
+}
